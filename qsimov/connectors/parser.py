@@ -24,30 +24,60 @@ This module has all name parsing stuff
 import re
 import sympy as sp
 
-from sympy.matrices import Matrix
+from sympy.matrices import Matrix, zeros
 from sympy.parsing.sympy_parser import parse_expr
+from sympy import shape
 
 
 _gate_name_re = r"[a-zA-Z0-9_]+"
 __rep__ = re.compile(r"^(" + _gate_name_re + r")(\(.*\))?(\-1)?$")
 
 
-def parse_groups(groups):
+def parse_groups(groups, noise):
     """Parse the result of get_groups function, passed as parameter."""
     errored = False
     g1 = groups[0]
     g4 = groups[2] is not None
     if groups[1] is not None:
         aux = groups[1][1:-1].split(",")
-        g2 = len(aux)
         g3 = []
-        for attr in aux:
-            attr = parse_expr(attr)
-            if not attr.is_number:
-                print("Expression", attr, " is not a number")
-                errored = True
-                break
-            g3.append(attr)
+        if noise:
+            args = []
+            for i in range(len(aux)):
+                
+                attr = aux[i]
+                if i >= 2:
+                    try:
+                        float(attr)
+                        attr = parse_expr(attr)
+                        args.append(attr)
+                    except ValueError:
+                        if attr == "None" or attr == " None" or attr == "None ":
+                            args.append(None)
+                        else:
+                            args.append(attr)
+                else:
+                    try:
+                        float(attr)
+                        attr = parse_expr(attr)
+                        g3.append(attr)
+                    except ValueError:
+                        if attr == "None" or attr == " None" or attr == "None ":
+                            g3.append(None)
+                        else:
+                            g3.append(attr)
+            g3.append(args)
+        else:
+            args=[]
+            for i in range(len(aux)):
+                attr = parse_expr(aux[i])
+                if not attr.is_number:
+                    print("Expression", attr, " is not a number")
+                    errored = True
+                    break
+                args.append(attr)
+            g3.append(args)
+        g2 = len(g3)
     else:
         g2 = 0
         g3 = None
@@ -58,10 +88,10 @@ def parse_groups(groups):
         return None
 
 
-def get_groups(str_gate):
+def get_groups(str_gate, noise):
     """Get matching groups using __rep__ regular expression."""
     res = __rep__.match(str_gate)
-    return parse_groups(res.groups()) if res is not None else None
+    return parse_groups(res.groups(), noise) if res is not None else None
 
 
 def Hadamard():
@@ -89,14 +119,16 @@ def SqrtX():
     return Matrix([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]])
 
 
-def P(angle):
+def P(args):
+    angle = args[0]
     """Return sympy matrix with PhaseChange gate."""
     _R = sp.eye(2)
     _R[1, 1] = sp.exp(sp.I * angle)
     return _R
 
 
-def R(theta, phi):
+def R(args):
+    theta, phi = args
     """Return sympy matrix with R gate."""
     _R = sp.eye(2) * sp.cos(theta / 2)
     _isinth2 = -sp.I * sp.sin(theta / 2)
@@ -105,7 +137,8 @@ def R(theta, phi):
     return _R
 
 
-def RX(angle):
+def RX(args):
+    angle = args[0]
     """Return sympy matrix with rotation gate around X axis."""
     gate = Matrix([[0, 0], [0, 0]])
     cosan = sp.cos(angle / 2)
@@ -117,7 +150,8 @@ def RX(angle):
     return gate
 
 
-def RY(angle):
+def RY(args):
+    angle = args[0]
     """Return sympy matrix with rotation gate around Y axis."""
     gate = Matrix([[0, 0], [0, 0]])
     cosan = sp.cos(angle / 2)
@@ -129,7 +163,8 @@ def RY(angle):
     return gate
 
 
-def RZ(angle):
+def RZ(args):
+    angle = args[0]
     """Return sympy matrix with rotation gate around Z axis."""
     gate = Matrix([[0, 0], [0, 0]])
     gate[0, 0] = sp.cos(-angle / 2) + sp.sin(-angle / 2) * 1j
@@ -137,12 +172,14 @@ def RZ(angle):
     return gate
 
 
-def RUnity(n):
+def RUnity(args):
+    n = args[0]
     """Return sympy matrix with nth root of unity rotation gate."""
     return P(2*sp.pi/(2**n))
 
 
-def HalfDeutsch(angle):
+def HalfDeutsch(args):
+    angle = args[0]
     """Return sympy matrix with a portion of the Deutsch gate.
 
     This gate, when double controlled, is called Deutsch gate.
@@ -157,7 +194,8 @@ def HalfDeutsch(angle):
     return gate
 
 
-def U(th, ph, la):
+def U(args):
+    th, ph, la = args
     """Return sympy matrix with U(θ, φ, λ) gate (IBM)."""
     gate = Matrix([[0, 0], [0, 0]])
     costh2 = sp.cos(th / 2)
@@ -169,22 +207,23 @@ def U(th, ph, la):
     return gate
 
 
-def U3(th, ph, la):
+def U3(args):
     """Return sympy matrix with U3(θ, φ, λ) gate (IBM)."""
     print("[WARNING] This gate has been deprecated in OpenQASM standard. Use U(θ, φ, λ) instead.")
-    return U(th, ph, la)
+    return U(args)
 
 
-def U2(ph, la):
+def U2(args):
+    ph, la = args
     """Return sympy matrix with U2 gate (IBM)."""
     print("[WARNING] This gate has been deprecated in OpenQASM standard. Use U(π/2, φ, λ) instead.")
     return U(sp.pi / 2, ph, la)
 
 
-def U1(angle):
+def U1(args):
     """Return sympy matrix with U1 gate (IBM)."""
     print("[WARNING] This gate has been deprecated in OpenQASM standard. Use U(0, 0, λ) or P(λ) instead.")
-    return P(angle)
+    return P(args)
 
 
 def SWAP():
@@ -229,7 +268,8 @@ def sqrtSWAP():
     return gate
 
 
-def xx(angle):
+def xx(args):
+    angle = args[0]
     """Return sympy matrix with Ising Coupling XX gate. AKA Mølmer–Sørensen gate"""
     gate = sp.eye(4)
     phi2 = angle / 2
@@ -242,7 +282,8 @@ def xx(angle):
     return gate
 
 
-def yy(angle):
+def yy(args):
+    angle = args[0]
     """Return sympy matrix with Ising Coupling YY gate."""
     gate = sp.eye(4)
     phi2 = angle / 2
@@ -255,7 +296,8 @@ def yy(angle):
     return gate
 
 
-def zz(angle):
+def zz(args):
+    angle = args[0]
     """Return sympy matrix with Ising Coupling ZZ gate."""
     gate = sp.eye(4)
     phi2 = angle / 2
@@ -268,7 +310,8 @@ def zz(angle):
     return gate
 
 
-def xy(angle):
+def xy(args):
+    angle = args[0]
     """Return sympy matrix with Ising Coupling ZZ gate."""
     gate = sp.eye(4)
     phi2 = angle / 2
@@ -279,6 +322,21 @@ def xy(angle):
     gate[2, 2] = cosphi2
     gate[2, 1] = _isinphi2
     return gate
+
+"""If noise is active we define a noisy gate for the original gate to apply"""
+def noisy(gate_str, prob = 0, args = []):
+    if args ==[]:
+        original_matrix = _gate_func[str(gate_str)]()
+    else:
+        original_matrix = _gate_func[str(gate_str)](args)
+
+    iden_prob = zeros(shape(original_matrix)[0], shape(original_matrix)[1])
+    for i in range(shape(original_matrix)[0]):
+        iden_prob[i, i] = prob 
+    noisy_mat_partial = original_matrix-iden_prob*original_matrix
+    noisy_matrix = noisy_mat_partial+iden_prob
+
+    return noisy_matrix
 
 
 _gate_alias = {}
@@ -319,6 +377,8 @@ _gate_alias["swap"] = "SWAP"
 _gate_alias["iswap"] = "iSWAP"
 _gate_alias["fswap"] = "fSWAP"
 _gate_alias["sqrtswap"] = "SqrtSWAP"
+_gate_alias["noisy"] = "NOISY"
+
 
 # min_args, max_args, has_invert_arg, is_self_invert
 _gate_data = {}
@@ -339,17 +399,17 @@ _gate_data["RY"] = (1, 1, False)
 _gate_func["RY"] = RY
 _gate_data["RZ"] = (1, 1, False)
 _gate_func["RZ"] = RZ
-_gate_data["R"] = (2, 2, False)
+_gate_data["R"] = (1, 1, False)
 _gate_func["R"] = R
 _gate_data["P"] = (1, 1, False)
 _gate_func["P"] = P
 _gate_data["RootPhase"] = (1, 1, False)
 _gate_func["RootPhase"] = RUnity
-_gate_data["U"] = (3, 3, False)
+_gate_data["U"] = (1, 1, False)
 _gate_func["U"] = U
-_gate_data["U3"] = (3, 3, False)
+_gate_data["U3"] = (1, 1, False)
 _gate_func["U3"] = U3
-_gate_data["U2"] = (2, 2, False)
+_gate_data["U2"] = (1, 1, False)
 _gate_func["U2"] = U2
 _gate_data["U1"] = (1, 1, False)
 _gate_func["U1"] = U1
@@ -371,6 +431,8 @@ _gate_data["fSWAP"] = (0, 0, False)
 _gate_func["fSWAP"] = fSWAP
 _gate_data["SqrtSWAP"] = (0, 0, False)
 _gate_func["SqrtSWAP"] = sqrtSWAP
+_gate_data["NOISY"] = (2, 3, False)
+_gate_func["NOISY"] = noisy
 
 
 def get_available_gates():
@@ -381,11 +443,11 @@ def get_gate_aliases():
     return _gate_alias.copy()
 
 
-def get_gate_data(gateraw):
+def get_gate_data(gateraw, noise):
     """Get the data of the gate associated with the given string."""
     gate = None
     if type(gateraw) == str:
-        groups = get_groups(gateraw)
+        groups = get_groups(gateraw, noise)
         if groups is not None:
             alias, nargs, args, invert = groups
             alias = alias.lower()

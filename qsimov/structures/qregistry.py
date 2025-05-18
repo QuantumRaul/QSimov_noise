@@ -26,6 +26,7 @@ Functions:
 """
 import numpy as np
 import sympy as sp
+from random import random
 
 from sympy.functions.elementary.complexes import arg
 from qsimov.structures.funmatrix import Funmatrix
@@ -38,7 +39,7 @@ from qsimov.connectors.qsimovapi import apply_design
 class QRegistry(QStructure):
     """Quantum Registry, base of all quantum related operations."""
 
-    def __init__(self, num_qubits, data=None, doki=None, verbose=False):
+    def __init__(self, num_qubits, data=None, doki=None, verbose=False, noise = False, noise_params = None):
         """Initialize QRegistry to state 0.
 
         num_qubits -> number of QuBits in the registry.
@@ -72,6 +73,11 @@ class QRegistry(QStructure):
             self.qubit_map = data["qubit_map"]
             self.classic_vals = data["classic_vals"]
         self.verbose = verbose
+
+        self.noise_params = noise_params
+        self.noise = noise #By default disable the noise in the simulation
+        if self.noise:
+            self.apply_spam_noise(when = "preparation")
 
     def __del__(self):
         """Clean after deletion."""
@@ -107,19 +113,9 @@ class QRegistry(QStructure):
         """Return the number of qubits in this registry."""
         return self.num_qubits + self.num_bits
 
-    def measure(self, ids, random_generator=np.random.rand, num_threads=-1):
-        """Measure specified qubits of this registry and collapse.
-
-        Positional arguments:
-            ids -> List of QuBit ids that have to be measured
-        Keyworded arguments:
-            random_generator -> function without arguments that returns
-                                a random real number in [0, 1)
-        Return:
-            List with the value obtained after each measure
-        """
+    def measure(self, ids, random_generator=np.random.rand,  num_threads=-1):
         ids_set = _get_qubit_set(self.get_num_qubits(),
-                                 ids, False, "ids")
+                                ids, False, "ids")
         if len(ids_set) == 0:
             raise ValueError('ids cannot be empty')
         num_measured = len(ids_set)
@@ -130,17 +126,17 @@ class QRegistry(QStructure):
                 raise ValueError(f"Id {id} has already been measured")
             mask += 2**self.qubit_map[id]
         raw_reg, mess = self.doki.registry_measure(self.reg, mask, rolls,
-                                                   num_threads, self.verbose)
+                                                num_threads, self.verbose)
         mess = mess[::-1]
         final_mess = [mess[self.qubit_map[id]] if id in ids_set
-                      else None
-                      for id in range(self.num_qubits + self.num_bits)]
+                    else None
+                    for id in range(self.num_qubits + self.num_bits)]
         rem_qubits = self.num_qubits - num_measured
         if raw_reg is not None:
             # If rem_qubits is 0 then raw_reg must be None
             if rem_qubits == 0:
                 raise RuntimeError("Zero qubit registry found while " +
-                                   "measuring! Please report this bug.")
+                                "measuring! Please report this bug.")
         new_reg = QRegistry(None, doki=self.doki)
         new_reg.num_qubits = rem_qubits
         new_reg.num_bits = self.num_bits + num_measured
@@ -151,18 +147,24 @@ class QRegistry(QStructure):
         old_keys = [k for k in self.qubit_map if k not in ids_set]
         # print("DEBUG -> old_keys:", old_keys)
         new_reg.qubit_map = {old_keys[i]: i
-                             for i in range(len(old_keys))}
+                            for i in range(len(old_keys))}
         num_total = new_reg.num_qubits + new_reg.num_bits
         new_reg.classic_vals = {id: self.classic_vals[id]
                                 if id in self.classic_vals
                                 else final_mess[id]
                                 for id in range(num_total)
                                 if id not in new_reg.qubit_map}
+        
+        
+        if self.noise:
+            last_mess = self.apply_spam_noise(when = "measurement", mess=final_mess )
+        else:
+            last_mess = final_mess
 
-        return (new_reg, final_mess)
-
+        return new_reg, last_mess
+           
     def apply_gate(self, gate, targets=None, controls=None, anticontrols=None,
-                   num_threads=-1, target=None, control=None, anticontrol=None):
+                   num_threads=-1, target=None, control=None, anticontrol=None, gate_args = []):
         """Add specified gate to this QGate.
 
         Positional arguments:
@@ -176,6 +178,43 @@ class QRegistry(QStructure):
         Return:
             A new QRegistry
         """
+        """
+        If noise is active it executes the gate except a certain ratio
+        noiseless ==> qbit' = Gate*qbit
+
+        with noise ==> qbit' = ((1-p)Gate* + p*Identity)*qbit
+        where 1-p = Gate fidelity
+
+        """
+        #If controls is not None the gate envolves 2 qbits, else it envolves only 1
+        if self.noise:
+            if controls is not None:
+                #If there is a control qbit defined the gate is for 2 qbits
+                parameter = self.noise_params[2]
+            else:
+                if len(targets) > 1: 
+                    #SWAP gates do not take any control qbits but they are 2 qbit gates
+                    parameter = self.noise_params[2]
+                #Else the gate is for only 1 qbit
+                parameter = self.noise_params[1]
+
+        arguments = ''
+        for arg in gate_args:
+            arguments = arguments+', '+str(arg)
+        if arguments != '':
+            if self.noise:
+                new_gate = f"noisy({gate}, {1-parameter}{arguments})"
+            else:
+                arguments = arguments[1:]
+                new_gate = f"{gate}({arguments})"
+        else:
+            if self.noise:
+                new_gate = f"noisy({gate}, {1-parameter})"
+            else:
+                new_gate = f"{gate}"
+        
+        gate = new_gate     
+
         if target is not None:
             print("[WARNING] target keyworded argument is deprecated. Please use targets instead")
             if targets is not None:
@@ -196,7 +235,8 @@ class QRegistry(QStructure):
         num_threads = int(num_threads)
         num_qubits = self.num_qubits + self.num_bits
         op_data = _get_op_data(num_qubits, 0, gate, targets, None, None,
-                               controls, anticontrols, None, None)
+                               controls, anticontrols, None, None, noise =self.noise)
+        print(f'La puerta involucra {len(op_data["controls"])+len(op_data["targets"])} qubits')
         gate = op_data["gate"]
         targets = op_data["targets"]
         controls = op_data["controls"]
@@ -224,7 +264,7 @@ class QRegistry(QStructure):
                                                 aux_targets, aux_controls,
                                                 aux_anticontrols,
                                                 num_threads, self.verbose)
-            new_reg = QRegistry(None, doki=self.doki)
+            new_reg = QRegistry(None, doki=self.doki, noise=self.noise, noise_params= self.noise_params)
             new_reg.reg = doki_reg
             new_reg.num_qubits = self.num_qubits
             new_reg.num_bits = self.num_bits
@@ -251,7 +291,7 @@ class QRegistry(QStructure):
         if not np.allclose(num_threads % 1, 0):
             raise ValueError("num_threads must be an integer")
         num_threads = int(num_threads)
-        new_reg = QRegistry(None, doki=self.doki)
+        new_reg = QRegistry(None, doki=self.doki, noise=self.noise, noise_params= self.noise_params)
         new_reg.num_qubits = self.num_qubits
         new_reg.num_bits = self.num_bits
         new_reg.size = self.size
@@ -351,7 +391,19 @@ class QRegistry(QStructure):
             if i in self.classic_vals:
                 id -= 1
         return self.doki.registry_prob(self.reg, id, num_threads, self.verbose)
+    
+    def apply_spam_noise(self, when, mess = []):
+        spam_error = self.noise_params[0]
+        if when == "preparation":
+            for qbit in range(self.num_qubits):
+                if random() < spam_error:
+                    self.apply_gate('X', targets = qbit)
 
+        elif when == "measurement":
+            for qbit in range(len(mess)):
+                if random() < spam_error:
+                    mess[qbit] = not mess[qbit]
+            return mess
 
 def superposition(a, b, num_threads=-1, verbose=False):
     """Join two registries into one by calculating tensor product."""

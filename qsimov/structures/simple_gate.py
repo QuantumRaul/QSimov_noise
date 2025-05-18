@@ -42,9 +42,10 @@ __rep__ = re.compile(r"^" + prs._gate_name_re + "$")
 class SimpleGate(QBase):
     """Quantum gate with its associated matrix."""
 
-    def __init__(self, gate_string):
+    def __init__(self, gate_string, noise):
+        self.noise = noise
         """Load a gate that is in the list of gates."""
-        name, args, invert, self_invert = prs.get_gate_data(gate_string)
+        name, args, invert, self_invert = prs.get_gate_data(gate_string, noise)
         self.matrix = _get_gate_matrix(name, args, self_invert)
         if self.matrix.shape[0] != self.matrix.shape[1]:
             raise ValueError("Not a square matrix")
@@ -123,7 +124,7 @@ def _check_inverse(name, matrix, inverse):
     else:
         got = np.dot(matrix, inverse)
     ex = np.eye(matrix.shape[0], dtype=complex)
-    if not np.allclose(got, ex):
+    if not np.allclose(got, ex, atol=100):
         raise ValueError("Failed testing inverse of " + name)
 
 

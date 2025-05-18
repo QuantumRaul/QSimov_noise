@@ -84,7 +84,7 @@ class QStructure(QBase):
 
 
 def _get_op_data(num_qubits, num_bits, gate, targets, c_targets, outputs,
-                 controls, anticontrols, c_controls, c_anticontrols,
+                 controls, anticontrols, c_controls, c_anticontrols, noise,
                  empty=False):
     """Do basic error checking for arguments and return them."""
     targets = _get_qubit_set(num_qubits, targets, True, "targets")
@@ -103,7 +103,7 @@ def _get_op_data(num_qubits, num_bits, gate, targets, c_targets, outputs,
                 if num_c_targets is None:
                     num_c_targets = len(c_targets)
             else:
-                gate = SimpleGate(gate)
+                gate = SimpleGate(gate, noise)
                 num_targets = gate.num_qubits
         elif type(gate) != SimpleGate:
             num_c_targets = gate.num_bits

@@ -24,3 +24,4 @@ from qsimov.structures.qcircuit import QCircuit
 from qsimov.structures.simple_gate import SimpleGate, add_gate
 from qsimov.connectors.drewom import Drewom
 from qsimov.connectors.parser import get_available_gates, get_gate_aliases
+from qsimov.noise.qpu import QPU
