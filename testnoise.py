@@ -10,8 +10,10 @@ from random import randint, random
 #We create a registry of nq qubits
 nq = 5
 
+#To apply noise we use a QPU instead of a QRegistry
 
-#reg = qj.QPU(type = "superconductor", topology= "heavy_hex", num_qubits= nq, path = "qpus_falso.db")
+#the targets must be lists even if there is only 1 target
+
 reg = qj.QPU(type = "superconductor", topology= "heavy_hex", num_qubits= nq, path = "qpus.db")
 #reg = qj.QRegistry(nq)
     
